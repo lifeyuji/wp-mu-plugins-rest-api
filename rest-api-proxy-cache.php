@@ -4,9 +4,9 @@ Plugin Name: REST API プロキシ＆FSE同期＋コアブロックCSS補完（�
 Description:
   ローカル環境のみ…
   1) 通常固定ページは the_content でリモート fetch → 上書き  
-  2) FSEテンプレート／パターンは REST API プロキシ＆キャッシュ  
+  2) FSEテンプレート／パターン／グローバルスタイルは REST API プロキシ＆キャッシュ  
   3) 固定ページ表示時、Cover/Button/Gallery/Group ブロックCSSを手動enqueue
-Version: 1.7
+Version: 1.8
 Author: lifeyuji
 */
 
@@ -14,16 +14,12 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-/** デバッグ用 */
 function rpx_log( $msg ) {
     if ( defined('WP_DEBUG') && WP_DEBUG ) {
         error_log( '[RPX] ' . $msg );
     }
 }
 
-/**
- * 1) FSE／パターン用 REST API をプロキシ＋キャッシュ
- */
 add_filter( 'rest_pre_dispatch', 'rpx_proxy_and_cache', 10, 3 );
 function rpx_proxy_and_cache( $result, $server, $request ) {
     if ( ! ( defined('WP_ENV') && WP_ENV==='local' ) ) {
@@ -31,12 +27,18 @@ function rpx_proxy_and_cache( $result, $server, $request ) {
     }
 
     $route = $request->get_route();
+
+    // プロキシ対象パターンに global-styles を追加
     $patterns = [
         '/wp/v2/block-patterns',
-        '/wp/v2/patterns',
+        '/wp/v2/pattern-directory',
+        '/wp/v2/templates',
+        '/wp/v2/template-parts',
         '/wp/v2/wp_template',
         '/wp/v2/wp_template_part',
         '/wp/v2/themes/',
+        '/wp/v2/global-styles',   // ← 追加
+        '/wp/v2/settings',        // ← 必要であれば設定も
     ];
 
     foreach ( $patterns as $base ) {
@@ -46,11 +48,13 @@ function rpx_proxy_and_cache( $result, $server, $request ) {
             $ttl       = defined('RPX_CACHE_TTL') ? RPX_CACHE_TTL : 300;
             $cache_key = 'rpx_' . md5( REMOTE_API_URL . $route . $request->get_method() . serialize( $request->get_query_params() ) );
 
+            // キャッシュヒット判定
             if ( $ttl > 0 && false !== ( $cached = get_transient( $cache_key ) ) ) {
                 rpx_log( "Cache hit: $cache_key" );
                 return rest_ensure_response( $cached );
             }
 
+            // クエリ文字列再構築
             $qs = '';
             if ( $q = $request->get_query_params() ) {
                 $qs = '?' . http_build_query( $q );
@@ -91,9 +95,6 @@ function rpx_proxy_and_cache( $result, $server, $request ) {
     return $result;
 }
 
-/**
- * 2) 固定ページ the_content 上書き（直接 fetch）
- */
 add_filter( 'the_content', 'rpx_override_page_content', 10, 1 );
 function rpx_override_page_content( $content ) {
     rpx_log( 'the_content fired' );
@@ -141,46 +142,13 @@ function rpx_override_page_content( $content ) {
     return $content;
 }
 
-/**
- * 3) 固定ページ表示時にコアブロックの CSS を手動 enqueue
- */
 add_action( 'wp_enqueue_scripts', function() {
     if ( defined('WP_ENV') && WP_ENV === 'local' && is_page() ) {
-        // コアブロック共通スタイル
         wp_enqueue_style( 'wp-block-library' );
-
-        // Cover ブロック
-        wp_enqueue_style(
-            'wp-block-cover',
-            includes_url( 'blocks/cover/style.min.css' ),
-            array(),
-            null
-        );
-        // Button ブロック
-        wp_enqueue_style(
-            'wp-block-button',
-            includes_url( 'blocks/button/style.min.css' ),
-            array(),
-            null
-        );
-        // Gallery ブロック
-        wp_enqueue_style(
-            'wp-block-gallery',
-            includes_url( 'blocks/gallery/style.min.css' ),
-            array(),
-            null
-        );
-        // Group ブロック
-        wp_enqueue_style(
-            'wp-block-group',
-            includes_url( 'blocks/group/style.min.css' ),
-            array(),
-            null
-        );
-        // Media & Text ブロック
-        wp_enqueue_style( 'wp-block-media-text',
-            includes_url( 'blocks/media-text/style.min.css' ),
-            array(), null
-        );
+        wp_enqueue_style( 'wp-block-cover',        includes_url( 'blocks/cover/style.min.css' ),        [], null );
+        wp_enqueue_style( 'wp-block-button',       includes_url( 'blocks/button/style.min.css' ),       [], null );
+        wp_enqueue_style( 'wp-block-gallery',      includes_url( 'blocks/gallery/style.min.css' ),      [], null );
+        wp_enqueue_style( 'wp-block-group',        includes_url( 'blocks/group/style.min.css' ),        [], null );
+        wp_enqueue_style( 'wp-block-media-text',   includes_url( 'blocks/media-text/style.min.css' ),   [], null );
     }
 }, 0 );
