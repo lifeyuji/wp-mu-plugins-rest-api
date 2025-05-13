@@ -22,5 +22,9 @@ define( 'REMOTE_API_PASSWORD', 'pass' );
 define( 'WP_ENV', 'local' );
 // キャッシュの有効期限（秒）。0 にするとキャッシュ無効化
 define( 'RPX_CACHE_TTL', 0 );
+
+// デバッグ用
+define( 'WP_DEBUG_LOG', true );
+define( 'WP_DEBUG_DISPLAY', true );
 ```
 
