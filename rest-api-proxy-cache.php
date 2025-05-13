@@ -177,5 +177,10 @@ add_action( 'wp_enqueue_scripts', function() {
             array(),
             null
         );
+        // Media & Text ブロック
+        wp_enqueue_style( 'wp-block-media-text',
+            includes_url( 'blocks/media-text/style.min.css' ),
+            array(), null
+        );
     }
 }, 0 );
