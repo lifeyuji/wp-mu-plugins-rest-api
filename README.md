@@ -20,5 +20,7 @@ define( 'REMOTE_API_URL', 'https://dev.sample.com' );
 define( 'REMOTE_API_USERNAME', 'user' );
 define( 'REMOTE_API_PASSWORD', 'pass' );
 define( 'WP_ENV', 'local' );
+// キャッシュの有効期限（秒）。0 にするとキャッシュ無効化
+define( 'RPX_CACHE_TTL', 0 );
 ```
 
