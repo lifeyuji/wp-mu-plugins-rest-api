@@ -16,9 +16,26 @@ Basic認証をかけたテストサイトの固定ページのエディタを ht
 2. wp-config.phpにテストサイトの情報を追記
 
 ```
+define( 'WP_ENV', 'local' );
 define( 'REMOTE_API_URL', 'https://dev.sample.com' );
 define( 'REMOTE_API_USERNAME', 'user' );
 define( 'REMOTE_API_PASSWORD', 'pass' );
-define( 'WP_ENV', 'local' );
+```
+
+3. テストサイトで「https://dev.sample.com/sample-page」が存在する場合、
+ローカル側で同じスラッグのページが存在していれば the_title() と the_content() がテストサイトのものを取得してローカルで表示してくれます。
+これによりローカル側での編集が不要になり、  
+・管理画面の編集 → テストサイト  
+・テーマ内のスタイル記述 → ローカルサイト  
+という分別ができます。
+
+## デバッグしたい時
+
+wp-config.phpに下記を記載すると wp-content/debug.log にログが出ます。
+
+```
+define( 'WP_DEBUG', true );
+define( 'WP_DEBUG_LOG', true );
+define( 'WP_DEBUG_DISPLAY', false ); 
 ```
 
