@@ -16,6 +16,8 @@ Basic認証をかけたテストサイトの固定ページのエディタを ht
 2. wp-config.phpにテストサイトの情報を追記
 
 ```
+define( 'RPX_REMOTE_ENABLE', true ); // 止めたい時は false
+
 define( 'WP_ENV', 'local' );
 define( 'REMOTE_API_URL', 'https://dev.sample.com' );
 define( 'REMOTE_API_USERNAME', 'user' );

@@ -1,8 +1,8 @@
 <?php
 /*
-Plugin Name: REST API Proxy for Singular (Local Dev) + Badge + Debug + Title
-Description: ローカル環境で singular の本文/タイトルをリモートから取得して上書き。REMOTE適用時のみバッジ表示。ログで原因追跡。
-Version: 1.4
+Plugin Name: REST API Proxy for Singular (Local Dev) + Badge + Debug + Title + Toggle
+Description: ローカル環境で singular の本文/タイトルをリモートから取得して上書き。REMOTE適用時のみバッジ表示。ON/OFFは RPX_REMOTE_ENABLE で制御。
+Version: 1.5
 Author: lifeyuji
 */
 
@@ -21,13 +21,27 @@ function rpx_mark_remote_applied() {
 }
 
 /**
+ * リモート反映が有効か？
+ * wp-config.php に define( 'RPX_REMOTE_ENABLE', true ); を置く運用推奨
+ */
+function rpx_is_enabled() {
+	if ( ! defined( 'WP_ENV' ) || WP_ENV !== 'local' ) {
+		return false;
+	}
+	if ( defined( 'RPX_REMOTE_ENABLE' ) && RPX_REMOTE_ENABLE === false ) {
+		return false;
+	}
+	return true;
+}
+
+/**
  * mu-plugin が読み込まれてるか確認用（WP_DEBUG時だけ）
  */
 add_action( 'init', function() {
-	if ( defined( 'WP_ENV' ) && WP_ENV === 'local' ) {
-		rpx_log( 'Loaded. WP_ENV=local' );
+	if ( rpx_is_enabled() ) {
+		rpx_log( 'Loaded. RPX enabled (WP_ENV=local)' );
 	} else {
-		rpx_log( 'Loaded. WP_ENV not local or undefined' );
+		rpx_log( 'Loaded. RPX disabled (WP_ENV not local or RPX_REMOTE_ENABLE=false)' );
 	}
 }, 1 );
 
@@ -40,8 +54,8 @@ function rpx_fetch_remote_singular_if_needed() {
 	}
 	set_query_var( 'rpx_remote_fetched', 1 );
 
-	// ローカル環境 + フロントの singular のみ
-	if ( ! defined( 'WP_ENV' ) || WP_ENV !== 'local' || ! is_singular() || is_admin() ) {
+	// ローカル環境 + RPX有効 + フロントの singular のみ
+	if ( ! rpx_is_enabled() || ! is_singular() || is_admin() ) {
 		return;
 	}
 
@@ -127,7 +141,7 @@ function rpx_fetch_remote_singular_if_needed() {
 		return;
 	}
 
-	// title.rendered はHTMLが入ることがあるのでタグ除去して保持（the_title は基本エスケープされるが念のため）
+	// title.rendered はHTMLが入ることがあるのでタグ除去して保持
 	$remote_title = wp_strip_all_tags( $remote_title );
 
 	set_query_var( 'rpx_remote_content', $remote_content );
@@ -154,20 +168,16 @@ add_filter( 'the_content', function( $content ) {
  * タイトルを上書き（メインの queried object のみ）
  */
 add_filter( 'the_title', function( $title, $post_id ) {
-	// admin / feed は触らない
 	if ( is_admin() || is_feed() ) {
 		return $title;
 	}
 
-	// まず取得（必要なら）
 	rpx_fetch_remote_singular_if_needed();
 
-	// ローカル&singular 以外は触らない
-	if ( ! defined( 'WP_ENV' ) || WP_ENV !== 'local' || ! is_singular() ) {
+	if ( ! rpx_is_enabled() || ! is_singular() ) {
 		return $title;
 	}
 
-	// 今表示中の投稿だけ
 	$qid = get_queried_object_id();
 	if ( (int) $post_id !== (int) $qid ) {
 		return $title;
@@ -185,7 +195,7 @@ add_filter( 'the_title', function( $title, $post_id ) {
  * REMOTE適用時のみバッジ表示
  */
 add_action( 'wp_footer', function() {
-	if ( ! defined( 'WP_ENV' ) || WP_ENV !== 'local' || is_admin() || ! get_query_var( 'rpx_remote_applied' ) ) {
+	if ( ! rpx_is_enabled() || is_admin() || ! get_query_var( 'rpx_remote_applied' ) ) {
 		return;
 	}
 
