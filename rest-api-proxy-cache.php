@@ -1,8 +1,11 @@
 <?php
 /*
-Plugin Name: REST API Proxy for Singular (Local Dev) + Badge + Debug + Title + Toggle
-Description: ローカル環境で singular の本文/タイトルをリモートから取得して上書き。REMOTE適用時のみバッジ表示。ON/OFFは RPX_REMOTE_ENABLE で制御。
-Version: 1.5
+Plugin Name: REST API Proxy for Singular (Local Dev) + Title + Badge + Inline CSS + Toggle
+Description:
+  ローカル環境で singular の本文/タイトルをテストサイトから取得して上書き。
+  リモートHTMLから inline CSS（global-styles / core-block-supports / block-style-variation）を抽出して head に注入。
+  ON/OFF は wp-config.php の RPX_REMOTE_ENABLE で制御。
+Version: 1.6
 Author: lifeyuji
 */
 
@@ -10,33 +13,30 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/** ログ */
 function rpx_log( $msg ) {
 	if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
 		error_log( '[RPX] ' . $msg );
 	}
 }
 
-function rpx_mark_remote_applied() {
-	set_query_var( 'rpx_remote_applied', 1 );
-}
-
-/**
- * リモート反映が有効か？
- * wp-config.php に define( 'RPX_REMOTE_ENABLE', true ); を置く運用推奨
- */
+/** 有効判定 */
 function rpx_is_enabled() {
 	if ( ! defined( 'WP_ENV' ) || WP_ENV !== 'local' ) {
 		return false;
 	}
+	// wp-config.php に define('RPX_REMOTE_ENABLE', false); を置いたら停止
 	if ( defined( 'RPX_REMOTE_ENABLE' ) && RPX_REMOTE_ENABLE === false ) {
 		return false;
 	}
 	return true;
 }
 
-/**
- * mu-plugin が読み込まれてるか確認用（WP_DEBUG時だけ）
- */
+function rpx_mark_remote_applied() {
+	set_query_var( 'rpx_remote_applied', 1 );
+}
+
+/** 起動ログ */
 add_action( 'init', function() {
 	if ( rpx_is_enabled() ) {
 		rpx_log( 'Loaded. RPX enabled (WP_ENV=local)' );
@@ -54,7 +54,6 @@ function rpx_fetch_remote_singular_if_needed() {
 	}
 	set_query_var( 'rpx_remote_fetched', 1 );
 
-	// ローカル環境 + RPX有効 + フロントの singular のみ
 	if ( ! rpx_is_enabled() || ! is_singular() || is_admin() ) {
 		return;
 	}
@@ -66,25 +65,21 @@ function rpx_fetch_remote_singular_if_needed() {
 	rpx_log( 'fetch start. post_id=' . $post_id . ' post_type=' . $post_type . ' slug=' . $slug );
 
 	if ( ! $post_type || ! $slug ) {
-		rpx_log( 'Skip: missing post_type or slug.' );
 		return;
 	}
 
 	$pto = get_post_type_object( $post_type );
-	if ( ! $pto ) {
-		rpx_log( 'Skip: post type object not found.' );
-		return;
-	}
-
-	if ( empty( $pto->show_in_rest ) ) {
-		rpx_log( 'Skip: show_in_rest is false for ' . $post_type );
+	if ( ! $pto || empty( $pto->show_in_rest ) ) {
 		return;
 	}
 
 	$rest_base = ! empty( $pto->rest_base ) ? $pto->rest_base : $post_type;
 
-	if ( ! defined( 'REMOTE_API_URL' ) || ! defined( 'REMOTE_API_USERNAME' ) || ! defined( 'REMOTE_API_PASSWORD' ) ) {
-		rpx_log( 'Skip: REMOTE constants missing.' );
+	if (
+		! defined( 'REMOTE_API_URL' ) ||
+		! defined( 'REMOTE_API_USERNAME' ) ||
+		! defined( 'REMOTE_API_PASSWORD' )
+	) {
 		return;
 	}
 
@@ -129,7 +124,6 @@ function rpx_fetch_remote_singular_if_needed() {
 	}
 
 	if ( ! is_array( $data ) || empty( $data[0] ) ) {
-		rpx_log( 'No matched remote item for slug=' . $slug . ' rest_base=' . $rest_base );
 		return;
 	}
 
@@ -137,63 +131,148 @@ function rpx_fetch_remote_singular_if_needed() {
 	$remote_title   = $data[0]['title']['rendered'] ?? '';
 
 	if ( empty( $remote_content ) ) {
-		rpx_log( 'Remote content empty. slug=' . $slug );
 		return;
 	}
 
-	// title.rendered はHTMLが入ることがあるのでタグ除去して保持
-	$remote_title = wp_strip_all_tags( $remote_title );
-
 	set_query_var( 'rpx_remote_content', $remote_content );
-	set_query_var( 'rpx_remote_title', $remote_title );
+	set_query_var( 'rpx_remote_title', wp_strip_all_tags( $remote_title ) );
 
-	rpx_log( 'REMOTE STORED: slug=' . $slug . ' rest_base=' . $rest_base );
 	rpx_mark_remote_applied();
 }
 
-/**
- * 本文を上書き
- */
+/** 本文上書き */
 add_filter( 'the_content', function( $content ) {
 	rpx_fetch_remote_singular_if_needed();
-
 	$remote = get_query_var( 'rpx_remote_content' );
-	if ( $remote ) {
-		return $remote;
-	}
-	return $content;
-}, 10, 1 );
+	return $remote ? $remote : $content;
+}, 10 );
 
-/**
- * タイトルを上書き（メインの queried object のみ）
- */
+/** タイトル上書き（表示中の投稿のみ） */
 add_filter( 'the_title', function( $title, $post_id ) {
 	if ( is_admin() || is_feed() ) {
 		return $title;
 	}
-
-	rpx_fetch_remote_singular_if_needed();
-
 	if ( ! rpx_is_enabled() || ! is_singular() ) {
 		return $title;
 	}
 
-	$qid = get_queried_object_id();
-	if ( (int) $post_id !== (int) $qid ) {
+	rpx_fetch_remote_singular_if_needed();
+
+	if ( (int) $post_id !== (int) get_queried_object_id() ) {
 		return $title;
 	}
 
-	$remote_title = get_query_var( 'rpx_remote_title' );
-	if ( $remote_title !== '' && $remote_title !== null ) {
-		return $remote_title;
-	}
-
-	return $title;
+	$remote = get_query_var( 'rpx_remote_title' );
+	return ( $remote !== null && $remote !== '' ) ? $remote : $title;
 }, 10, 2 );
 
 /**
- * REMOTE適用時のみバッジ表示
+ * リモートHTMLから inline CSS 抽出
+ * - global-styles-inline-css
+ * - core-block-supports-inline-css
+ * - block-style-variation-styles-inline-css  ← 追加
  */
+function rpx_fetch_remote_head_inline_css() {
+	if ( ! rpx_is_enabled() ) {
+		return [];
+	}
+
+	if (
+		! defined( 'REMOTE_API_URL' ) ||
+		! defined( 'REMOTE_API_USERNAME' ) ||
+		! defined( 'REMOTE_API_PASSWORD' )
+	) {
+		return [];
+	}
+
+	$req_uri    = $_SERVER['REQUEST_URI'] ?? '/';
+	$remote_url = rtrim( REMOTE_API_URL, '/' ) . $req_uri;
+
+	$cache_key = 'rpx_head_css_' . md5( $remote_url );
+	if ( $cached = get_transient( $cache_key ) ) {
+		return $cached;
+	}
+
+	$auth = base64_encode( REMOTE_API_USERNAME . ':' . REMOTE_API_PASSWORD );
+	$res  = wp_remote_get( $remote_url, [
+		'headers' => [
+			'Authorization' => 'Basic ' . $auth,
+		],
+		'timeout' => 10,
+	] );
+
+	if ( is_wp_error( $res ) ) {
+		rpx_log( 'head fetch error: ' . $res->get_error_message() );
+		return [];
+	}
+
+	$html = wp_remote_retrieve_body( $res );
+	if ( ! $html ) {
+		rpx_log( 'head fetch empty body' );
+		return [];
+	}
+
+	// DOMで <style> を全抽出（正規表現より堅い）
+	$css_map = [];
+	$want_exact = [
+		'global-styles-inline-css',
+		'core-block-supports-inline-css',
+	];
+
+	libxml_use_internal_errors( true );
+	$dom = new DOMDocument();
+
+	// 文字化け回避
+	$dom->loadHTML( '<?xml encoding="utf-8" ?>' . $html, LIBXML_NOWARNING | LIBXML_NOERROR );
+	libxml_clear_errors();
+
+	$styles = $dom->getElementsByTagName( 'style' );
+
+	foreach ( $styles as $style ) {
+		$id = $style->getAttribute( 'id' );
+		if ( ! $id ) {
+			continue;
+		}
+
+		// 1) 厳密一致（global/core-supports）
+		if ( in_array( $id, $want_exact, true ) ) {
+			$css_map[ $id ] = trim( $style->textContent );
+			continue;
+		}
+
+		// 2) block-style-variation は “含む” で拾う（id揺れ対策）
+		if ( strpos( $id, 'block-style-variation' ) !== false ) {
+			$css_map[ $id ] = trim( $style->textContent );
+			continue;
+		}
+	}
+
+	// デバッグ：何を拾えたか
+	if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+		foreach ( $css_map as $k => $v ) {
+			rpx_log( 'head css found: ' . $k . ' len=' . strlen( (string) $v ) );
+		}
+	}
+
+	set_transient( $cache_key, $css_map, 300 );
+	return $css_map;
+}
+
+/** head に inline CSS 注入 */
+add_action( 'wp_head', function() {
+	if ( ! rpx_is_enabled() || is_admin() ) {
+		return;
+	}
+
+	$css_map = rpx_fetch_remote_head_inline_css();
+	foreach ( $css_map as $id => $css ) {
+		if ( $css !== '' && $css !== null ) {
+			echo '<style id="' . esc_attr( $id ) . '">' . $css . "</style>\n";
+		}
+	}
+}, 20 );
+
+/** REMOTE適用時のみバッジ表示 */
 add_action( 'wp_footer', function() {
 	if ( ! rpx_is_enabled() || is_admin() || ! get_query_var( 'rpx_remote_applied' ) ) {
 		return;
